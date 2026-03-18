@@ -1,0 +1,21 @@
+# Points24 environment configuration for slime RL training.
+# Loaded via --custom-config-path examples/points24/config.yaml
+
+# Multi-turn interaction settings
+max_turns: 20  # Maximum 20 actions (numbers 1-10 + operators + '=')
+max_context_len: 8192
+history_window_size: 10  # For history-based rollout
+
+# Points24 environment settings
+target_points: 24
+treat_face_cards_as_10: true
+action_only: false  # If true, omit "thoughts" field in prompt
+
+# Task solvability verification
+verify_solvability: true  # Verify each task has a solution before training
+max_resets: 100  # Max attempts to find solvable task
+
+# Image settings
+image_size:
+  - 300
+  - 300

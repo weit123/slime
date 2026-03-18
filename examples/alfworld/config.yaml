@@ -1,0 +1,25 @@
+# ALFWorld environment configuration for slime RL training.
+# Loaded via --custom-config-path examples/alfworld/config.yaml
+
+# Multi-turn interaction settings
+max_turns: 40
+max_context_len: 16384
+history_window_size: 10
+
+# Environment pool settings (THOR is resource-intensive)
+num_workers: 16
+resources_per_worker:
+  num_cpus: 2
+  num_gpus: 0.25
+  memory: 4294967296  # 4 GB
+
+# ALFWorld environment settings
+alfworld_config_file: "/root/alfworld/configs/base_config.yaml"
+action_only: false  # If true, omit "thoughts" field in prompt
+
+# Image settings
+image_size:
+  - 300
+  - 300
+save_images: false
+temp_path: "/tmp/alfworld_images"
