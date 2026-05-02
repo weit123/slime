@@ -13,7 +13,13 @@ model_args:
   ffn_hidden_size: 12288
   group_query_attention: true
   num_query_groups: 8
+  kv_channels: 128
   vocab_size: 151936
+  swiglu: true
+  use_rotary_position_embeddings: true
+  disable_bias_linear: true
+  normalization: "RMSNorm"
+  qk_layernorm: true
   untie_embeddings_and_output_weights: true
   norm_epsilon: 1e-6
   rotary_base: 5000000
@@ -31,20 +37,60 @@ save_dir: "/workspace/wt/gtr_runs"
 seed: 42
 run_tag: "gtrturbo"   # Customizable prefix for save dir and wandb run name
 
-# TIES checkpoint merging
+# Disk retention. Keep the latest Megatron training state for exact resume
+# across outer-loop epochs; keep all HF checkpoints for teacher merge/auditing.
+keep_megatron_checkpoints: 1
+
+# ALFWorld/GTR-Turbo default resource plan for an 8-GPU node:
+# - GPUs 0-5 run slime actor and rollout engines in colocate mode.
+# - GPUs 6-7 run two independent single-GPU teacher replicas.
+slime_visible_devices: "0,1,2,3,4,5"
+actor_num_gpus_per_node: 6
+tensor_model_parallel_size: 2
+colocate: true
+sglang_mem_fraction_static: 0.70
+
+# GRPO sampling. n_samples_per_prompt is the GRPO group size.
+rollout_batch_size: 2
+n_samples_per_prompt: 32
+global_batch_size: 192
+rollout_temperature: 1.0
+rollout_top_p: 1.0
+rollout_max_response_len: 512
+rollout_max_context_len: 4096
+
+# Optimizer
+lr: 1.0e-5
+lr_warmup_iters: 10
+lr_decay_style: "cosine"
+min_lr: 1.0e-7
+
+# TIES checkpoint merging.
+# With incremental_teacher_merge=true, SMA/EMA are computed online:
+# - SMA after n checkpoints: old_teacher * n/(n+1) + new_checkpoint * 1/(n+1)
+# - EMA: old_teacher * (1-ema_alpha) + new_checkpoint * ema_alpha
 ties_density: 0.8
 weighting: sma      # "sma" or "ema"
 ema_alpha: 0.5
 merge_interval: 1   # merge every N epochs
+incremental_teacher_merge: true
 
 # OPD KL penalty (corresponds to paper's beta)
 opd_kl_coef: 1.0
 
-# Teacher server
-teacher_port: 13141
-teacher_gpu: 7      # GPU index for teacher SGLang server
+# Teacher servers. Replicas are independent SGLang servers, not tensor-parallel
+# shards. This improves throughput for many step-level OPD logprob requests.
+teacher_ports:
+  - 13141
+  - 13142
+teacher_gpus:
+  - 6
+  - 7
+teacher_mem_fraction_static: 0.70
+teacher_max_concurrency_per_server: 4
 
 # Wandb
+use_wandb: true
 wandb_host: "https://wandb.glm.ai"
 wandb_key: "local-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"
 wandb_project: "gtr"

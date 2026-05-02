@@ -2,10 +2,9 @@
 
 This example implements [GTR-Turbo](https://arxiv.org/abs/2512.13043) on the slime framework, featuring:
 
-1. **Points24 Environment** — 24-point card game for VLM agent training
-2. **ALFWorld Environment** — Embodied AI household tasks (AI2-THOR)
-3. **TIES Checkpoint Merging** — Merge RL checkpoints into a teacher model
-4. **GTR-Turbo KL Training** — On-policy distillation with merged teacher
+1. **ALFWorld Environment** — Embodied AI household tasks (AI2-THOR)
+2. **TIES Checkpoint Merging** — Merge RL checkpoints into a teacher model
+3. **GTR-Turbo KL Training** — On-policy distillation with merged teacher
 
 ## Architecture
 
@@ -19,35 +18,28 @@ This example implements [GTR-Turbo](https://arxiv.org/abs/2512.13043) on the sli
 │  ...                                                    │
 └──────────┬──────────────────────────────────────────────┘
            │
-    ┌──────┴──────┐
-    ▼             ▼
-┌────────┐  ┌──────────────┐
-│ Points24│  │  ALFWorld     │    Environments
-│ (CPU)  │  │  (Ray+THOR)  │
-└────────┘  └──────────────┘
+              ▼
+        ┌──────────────┐
+        │  ALFWorld    │    Environment
+        │  (Ray+THOR)  │
+        └──────────────┘
 ```
 
 ## Quick Start
 
-### 1. Points24 (GRPO baseline, no teacher)
-
-```bash
-python examples/gtr_turbo/points24/run_points24.py
-```
-
-### 2. ALFWorld (GRPO baseline)
+### 1. ALFWorld GRPO Baseline
 
 ```bash
 python examples/gtr_turbo/alfworld/run_alfworld.py
 ```
 
-### 3. GTR-Turbo with TIES merging (Points24)
+### 2. GTR-Turbo on ALFWorld
 
 ```bash
-bash examples/gtr_turbo/gtr_turbo_train/run_gtr_turbo_points24.sh
+bash examples/gtr_turbo/gtr_turbo_train/run_gtr_turbo_alfworld.sh
 ```
 
-### 4. Standalone TIES merge
+### 3. Standalone TIES Merge
 
 ```bash
 python -m examples.gtr_turbo.ties_merge.merge_teacher \
@@ -97,17 +89,16 @@ The merged checkpoint serves as a "free" teacher for on-policy distillation:
 
 ```yaml
 ties_density: 0.8     # TIES trimming density
-weighting: ema        # "sma" or "ema"
+weighting: sma        # "sma" or "ema"
 ema_alpha: 0.5        # EMA decay factor
 opd_kl_coef: 1.0      # KL penalty weight (β)
-num_epochs: 10        # Training epochs
+num_epochs: 30        # Training epochs
 merge_interval: 1     # Merge every N epochs
+n_samples_per_prompt: 32  # GRPO group size
+lr: 1.0e-5
+lr_decay_style: cosine
+min_lr: 1.0e-7
 ```
-
-### Points24 (`points24/config.yaml`)
-
-- `max_turns: 20`, `max_context_len: 8192`
-- 17 discrete actions, reward: +10 success / -1 failure
 
 ### ALFWorld (`alfworld/config.yaml`)
 
@@ -123,15 +114,6 @@ examples/gtr_turbo/
 │   ├── ties_merging.py   # Core algorithm
 │   ├── checkpoint_buffer.py  # SMA/EMA buffer
 │   └── merge_teacher.py  # CLI merge tool
-├── points24/             # 24-point card game
-│   ├── env_points24.py   # BaseInteractionEnv wrapper
-│   ├── env_worker.py     # Game engine
-│   ├── prompts.py        # Prompt templates
-│   ├── rollout.py        # Incremental rollout
-│   ├── rollout_history.py  # History-based rollout
-│   ├── reward.py         # Reward extraction
-│   ├── config.yaml       # Environment config
-│   └── run_points24.py   # Training script
 ├── alfworld/             # Embodied AI tasks
 │   ├── env_alfworld.py   # BaseInteractionEnv wrapper
 │   ├── env_worker.py     # Ray remote actor
@@ -147,7 +129,6 @@ examples/gtr_turbo/
     ├── gtr_turbo_reward.py  # OPD + env reward combiner
     ├── train_gtr_turbo.py   # Merge-deploy-train loop
     ├── config.yaml       # GTR-Turbo hyperparams
-    ├── run_gtr_turbo_points24.sh
     └── run_gtr_turbo_alfworld.sh
 ```
 

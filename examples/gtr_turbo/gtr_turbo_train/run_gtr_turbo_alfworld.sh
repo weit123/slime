@@ -1,5 +1,8 @@
 #!/bin/bash
-# GTR-Turbo training on ALFWorld environment.
+# GTR-Turbo training on ALFWorld with Qwen3-VL-8B.
+# This is the primary ALFWorld training entrypoint. The standalone
+# examples/gtr_turbo/alfworld/run_alfworld.py script is kept as a GRPO
+# baseline/smoke runner.
 #
 # Usage:
 #   bash examples/gtr_turbo/gtr_turbo_train/run_gtr_turbo_alfworld.sh

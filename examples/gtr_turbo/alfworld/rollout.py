@@ -120,6 +120,22 @@ def _merge_multimodal_train_inputs(chunks):
     return merged or None
 
 
+def _merge_multimodal_generation_inputs(chunks):
+    """Merge raw multimodal inputs for SGLang teacher logprob calls."""
+    merged = {}
+    for chunk in chunks:
+        if not chunk:
+            continue
+        for key, val in chunk.items():
+            if not val:
+                continue
+            if isinstance(val, list):
+                merged.setdefault(key, []).extend(val)
+            else:
+                merged.setdefault(key, []).append(val)
+    return merged or None
+
+
 def _append_context_tokens(
     sample: Sample,
     response_tokens: list[int],
@@ -163,6 +179,7 @@ def _build_step_sample(
     *,
     base_sample: Sample,
     obs_ids: list[int],
+    obs_mm_inputs,
     obs_mm_train,
     message: dict[str, Any],
     response_text: str,
@@ -187,6 +204,7 @@ def _build_step_sample(
         metadata=dict(base_sample.metadata or {}),
         generate_function_path=base_sample.generate_function_path,
     )
+    step_sample.multimodal_inputs = obs_mm_inputs
     step_sample.multimodal_train_inputs = obs_mm_train
     step_sample.status = Sample.Status.COMPLETED
     step_sample.metadata.update({
@@ -196,6 +214,7 @@ def _build_step_sample(
         "alfworld_action_taken": info.get("action_taken"),
         "alfworld_action_legal": bool(info.get("legal", False)),
         "alfworld_step_reward": float(info.get("reward", 0.0)),
+        "alfworld_need_teacher_logprobs": bool(base_sample.metadata.get("alfworld_need_teacher_logprobs")),
     })
     _assert_rollout_alignment(step_sample)
     return step_sample
@@ -217,6 +236,10 @@ def _finalize_step_samples(
         step_sample.metadata["raw_reward"] = env_reward
         if final_info is not None:
             step_sample.metadata["env_info"] = final_info
+        if step_sample.metadata.get("alfworld_need_teacher_logprobs"):
+            # Let OPD's custom RM call the teacher server. The scalar task
+            # reward remains available in metadata["env_reward"].
+            step_sample.reward = None
 
     if step_samples:
         # Log episode-level ALFWorld metrics once per trajectory, not once per step.
@@ -262,6 +285,9 @@ async def generate(args: Any, sample: Sample, sampling_params) -> list[Sample]:
 
     env = await async_build_env(sample, args)
     sample.metadata = sample.metadata or {}
+    sample.metadata["alfworld_need_teacher_logprobs"] = bool(
+        getattr(args, "use_opd", False) and getattr(args, "opd_type", None) == "sglang"
+    )
     sampling_params = sampling_params.copy()
     rep_penalty = config.get("repetition_penalty")
     if rep_penalty is not None:
@@ -311,6 +337,7 @@ async def generate(args: Any, sample: Sample, sampling_params) -> list[Sample]:
         current_msg = init_msg
         current_obs_ids = init_ids
         current_obs_image_data = init_img
+        current_obs_mm = init_mm
         current_obs_mm_train = init_obs_mm_train
 
         for turn_idx in range(max_turns):
@@ -358,6 +385,10 @@ async def generate(args: Any, sample: Sample, sampling_params) -> list[Sample]:
             step_sample = _build_step_sample(
                 base_sample=sample,
                 obs_ids=input_ids,
+                obs_mm_inputs=_merge_multimodal_generation_inputs([
+                    None if ignore_dataset_prompt else sample.multimodal_inputs,
+                    current_obs_mm,
+                ]),
                 obs_mm_train=_merge_multimodal_train_inputs([prompt_mm_train, current_obs_mm_train]),
                 message=current_msg,
                 response_text=response_text,
@@ -393,6 +424,7 @@ async def generate(args: Any, sample: Sample, sampling_params) -> list[Sample]:
             current_msg = next_msg
             current_obs_ids = obs_ids
             current_obs_image_data = obs_img
+            current_obs_mm = obs_mm
             current_obs_mm_train = obs_mm_train
 
             if turn_idx + 1 >= max_turns:

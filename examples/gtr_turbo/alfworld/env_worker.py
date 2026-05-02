@@ -17,6 +17,17 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _patch_flask_jinja2_compat():
+    """Expose Jinja2 APIs expected by Flask 1.x when running with Jinja2 3.x."""
+    import jinja2
+    from markupsafe import Markup, escape
+
+    if not hasattr(jinja2, "escape"):
+        jinja2.escape = escape
+    if not hasattr(jinja2, "Markup"):
+        jinja2.Markup = Markup
+
+
 def _ensure_xvfb(display=":99"):
     """Start Xvfb if not already running."""
     lock_path = f"/tmp/gtr_slime_xvfb_{display.replace(':', '')}.lock"
@@ -67,6 +78,7 @@ class AlfWorldWorker:
         display_base = int(xvfb_display_base or os.environ.get("GTR_SLIME_XVFB_DISPLAY_BASE", "99"))
         os.environ.pop("DISPLAY", None)
         _ensure_xvfb(f":{display_base + worker_id}")
+        _patch_flask_jinja2_compat()
 
         from alfworld.agents.environment.alfred_thor_env import AlfredThorEnv
 
