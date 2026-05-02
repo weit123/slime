@@ -1,0 +1,50 @@
+# GTR-Turbo training configuration.
+# Used by: python -m examples.gtr_turbo.gtr_turbo_train.train_gtr_turbo --config <this-file>
+
+# Base model
+base_model: "/workspace/wt/Qwen3-VL-8B-Instruct"
+
+# Megatron architecture args for Qwen3-VL-8B text backbone.
+# These override the defaults in train_gtr_turbo.py when present.
+model_args:
+  hidden_size: 4096
+  num_attention_heads: 32
+  num_layers: 36
+  ffn_hidden_size: 12288
+  group_query_attention: true
+  num_query_groups: 8
+  vocab_size: 151936
+  untie_embeddings_and_output_weights: true
+  norm_epsilon: 1e-6
+  rotary_base: 5000000
+  max_position_embeddings: 262144
+
+# Environment
+env: alfworld
+env_config: "examples/gtr_turbo/alfworld/config.yaml"
+
+# Training orchestration
+num_epochs: 30
+rollouts_per_epoch: 50
+num_gpus: 8
+save_dir: "/workspace/wt/gtr_runs"
+seed: 42
+run_tag: "gtrturbo"   # Customizable prefix for save dir and wandb run name
+
+# TIES checkpoint merging
+ties_density: 0.8
+weighting: sma      # "sma" or "ema"
+ema_alpha: 0.5
+merge_interval: 1   # merge every N epochs
+
+# OPD KL penalty (corresponds to paper's beta)
+opd_kl_coef: 1.0
+
+# Teacher server
+teacher_port: 13141
+teacher_gpu: 7      # GPU index for teacher SGLang server
+
+# Wandb
+wandb_host: "https://wandb.glm.ai"
+wandb_key: "local-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"
+wandb_project: "gtr"

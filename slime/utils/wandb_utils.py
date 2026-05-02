@@ -93,6 +93,9 @@ def reinit_wandb_primary_with_open_metrics(args, router_addr):
         return
     if router_addr is None:
         return
+    if os.environ.get("SLIME_SKIP_WANDB_REINIT"):
+        logger.info("Skipping W&B reinit with open metrics (SLIME_SKIP_WANDB_REINIT set).")
+        return
     wandb_run_id = getattr(args, "wandb_run_id", None)
     if wandb_run_id is None:
         return

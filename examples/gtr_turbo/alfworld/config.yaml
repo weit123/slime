@@ -1,0 +1,35 @@
+# ALFWorld environment configuration for slime RL training.
+# Loaded via --custom-config-path examples/gtr_turbo/alfworld/config.yaml
+
+# Multi-turn interaction settings
+max_turns: 40
+max_context_len: 16384
+max_action_tokens: 512
+
+# Sampling overrides
+repetition_penalty: 1.2
+
+# Match the successful Qwen3-VL eval path: one image per observation, explicit
+# Qwen3-VL chat tokens, and no extra system/dummy messages around env turns.
+qwen3_vl_eval_prompt_format: true
+ignore_dataset_prompt: true
+env_reset_retries: 1
+
+# Environment pool settings
+# THOR uses Mesa software rendering (no GPU needed for env workers)
+num_workers: 8
+xvfb_display_base: 190
+resources_per_worker:
+  num_cpus: 2
+  num_gpus: 0
+  memory: 4294967296  # 4 GB
+
+# ALFWorld environment settings
+alfworld_config_file: "/workspace/wt/gtr_slime/examples/gtr_turbo/alfworld/alfworld_thor_config.yaml"
+legacy_build_path: "/root/.ai2thor/releases/thor-201909061227-Linux64/thor-201909061227-Linux64"
+action_only: false
+
+# Image settings
+image_size:
+  - 300
+  - 300

@@ -1,0 +1,20 @@
+# Points24 environment configuration for slime RL training.
+# Loaded via --custom-config-path examples/gtr_turbo/points24/config.yaml
+
+# Multi-turn interaction settings
+max_turns: 20
+max_context_len: 8192
+history_window_size: 10
+
+# Game rules
+target_value: 24
+max_steps: 20
+treat_face_cards_as_10: true
+action_only: false
+
+# Task validation
+solvability_check: true
+max_resets: 100
+
+# Image settings
+image_size: 300

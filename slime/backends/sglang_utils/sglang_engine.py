@@ -88,7 +88,7 @@ def _wait_server_healthy(base_url, api_key, is_process_alive):
     with requests.Session() as session:
         while True:
             try:
-                response = session.get(f"{base_url}/health_generate", headers=headers)
+                response = session.get(f"{base_url}/health", headers=headers)
                 if response.status_code == 200:
                     break
             except requests.RequestException:
@@ -293,9 +293,14 @@ class SGLangEngine(RayActor):
         if self.node_rank != 0:
             return
         # flush cache will not return status_code 200 when there are pending requests
+        headers = {"Connection": "close"}
         for _ in range(60):
             try:
-                response = requests.get(f"http://{self.server_host}:{self.server_port}/flush_cache")
+                response = requests.get(
+                    f"http://{self.server_host}:{self.server_port}/flush_cache",
+                    headers=headers,
+                    timeout=(5, 30),
+                )
                 if response.status_code == 200:
                     break
             except NewConnectionError as e:
@@ -355,7 +360,10 @@ class SGLangEngine(RayActor):
         return response.json()["weight_version"]
 
     def release_memory_occupation(self):
-        self.flush_cache()
+        # sglang's scheduler.release_memory_occupation already flushes the
+        # cache internally when KV_CACHE is offloaded. A separate HTTP
+        # /flush_cache here is redundant and has raced with the scheduler's
+        # idle self-checks, causing one engine per run to hang during init.
         return self._make_request("release_memory_occupation")
 
     def resume_memory_occupation(self, tags: list[str] = None):
