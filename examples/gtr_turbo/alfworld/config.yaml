@@ -4,23 +4,39 @@
 # Multi-turn interaction settings
 max_turns: 40
 max_context_len: 16384
-max_action_tokens: 512
+max_action_tokens: 256
 
-# Sampling overrides
-repetition_penalty: 1.2
+# Sampling overrides. Keep this aligned with alfworld_test's HF greedy eval path;
+# rollout temperature is controlled by run_alfworld.py.
+repetition_penalty: null
 
 # Match the successful Qwen3-VL eval path: one image per observation, explicit
 # Qwen3-VL chat tokens, and no extra system/dummy messages around env turns.
 qwen3_vl_eval_prompt_format: true
 ignore_dataset_prompt: true
 env_reset_retries: 1
+remote_reset_timeout_sec: 150
+remote_step_timeout_sec: 60
 
 # Environment pool settings
-# THOR uses Mesa software rendering (no GPU needed for env workers)
-num_workers: 8
+# CPU/Xvfb is more stable under full 8-GPU training load than sharing the same
+# GPUs with Unity GLX rendering.
+num_workers: 32
 xvfb_display_base: 190
+use_gpu_xorg: false
+xorg_display_base: 210
+xorg_num_displays: 8
+prewarm_workers: true
+worker_warmup_reset: false
+# Rollout uses RGB frames and oracle metadata/instance segmentation. Depth and
+# class segmentation are disabled to reduce THOR render work; object
+# segmentation stays enabled for ALFWorld oracle admissible actions.
+render_image: true
+render_depth_image: false
+render_class_image: false
+render_object_image: true
 resources_per_worker:
-  num_cpus: 2
+  num_cpus: 1
   num_gpus: 0
   memory: 4294967296  # 4 GB
 

@@ -31,7 +31,10 @@ env_config: "examples/gtr_turbo/alfworld/config.yaml"
 
 # Training orchestration
 num_epochs: 30
-rollouts_per_epoch: 50
+rollouts_per_epoch: 1
+# Each outer epoch launches one slime run, and slime still saves on the final
+# rollout of that run. Keep this at 6 for consistency with GRPO baseline.
+save_interval: 6
 num_gpus: 8
 save_dir: "/workspace/wt/gtr_runs"
 seed: 42
@@ -51,17 +54,20 @@ colocate: true
 sglang_mem_fraction_static: 0.70
 
 # GRPO sampling. n_samples_per_prompt is the GRPO group size.
-rollout_batch_size: 2
-n_samples_per_prompt: 32
-global_batch_size: 192
-rollout_temperature: 1.0
+rollout_batch_size: 32
+n_samples_per_prompt: 16
+# 32 tasks * 16 rollouts = 512 trajectories. With 6 actor GPUs and TP=2,
+# DP=3, so dynamic global batch uses the largest divisible value: 510.
+global_batch_size: 510
+use_dynamic_global_batch_size: true
+rollout_temperature: 0.4
 rollout_top_p: 1.0
 rollout_max_response_len: 512
 rollout_max_context_len: 4096
 
 # Optimizer
 lr: 1.0e-5
-lr_warmup_iters: 10
+lr_warmup_iters: 3
 lr_decay_style: "cosine"
 min_lr: 1.0e-7
 

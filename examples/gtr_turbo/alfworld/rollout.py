@@ -6,6 +6,7 @@ single-step samples: current observation/image prompt + current action only.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import torch
@@ -22,6 +23,8 @@ DUMMY_MESSAGES = [
     {"role": "system", "content": SYSTEM_PROMPT},
     {"role": "user", "content": "I am a user."},
 ]
+
+logger = logging.getLogger(__name__)
 
 
 def _to_token_list(token_ids) -> list[int]:
@@ -58,8 +61,11 @@ def _encode_observation_for_generation(
     multimodal_inputs = None
     multimodal_train_inputs = None
     if processor:
-        from qwen_vl_utils import process_vision_info
-        images, videos = process_vision_info([message])
+        if qwen3_vl_eval_prompt_format:
+            images, videos = _extract_raw_vision_inputs(message)
+        else:
+            from qwen_vl_utils import process_vision_info
+            images, videos = process_vision_info([message])
         multimodal_inputs = {}
         if images:
             multimodal_inputs["images"] = images
@@ -82,6 +88,20 @@ def _encode_observation_for_generation(
         image_data = [encode_image_for_rollout_engine(img) for img in multimodal_inputs["images"]]
 
     return _to_token_list(prompt_ids), image_data, multimodal_inputs, multimodal_train_inputs
+
+
+def _extract_raw_vision_inputs(message: dict[str, Any]) -> tuple[list[Any], list[Any]]:
+    """Extract raw images/videos without qwen_vl_utils resizing side effects."""
+    images = []
+    videos = []
+    for item in message.get("content", []):
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "image" and item.get("image") is not None:
+            images.append(item["image"])
+        elif item.get("type") == "video" and item.get("video") is not None:
+            videos.append(item["video"])
+    return images, videos
 
 
 def _format_qwen3_vl_observation(message: dict[str, Any]) -> str:
@@ -269,11 +289,20 @@ async def generate(args: Any, sample: Sample, sampling_params) -> list[Sample]:
     """
     assert not getattr(args, "partial_rollout", False)
 
-    config = getattr(args, "custom_config", None) or {}
-    if not config:
-        for key in ["max_turns", "max_context_len", "repetition_penalty"]:
-            if hasattr(args, key):
-                config[key] = getattr(args, key)
+    config = dict(getattr(args, "custom_config", None) or {})
+    # custom_config_path is expanded into individual argparse attributes by
+    # slime.utils.arguments, not stored as args.custom_config.
+    for key in [
+        "max_turns",
+        "max_context_len",
+        "max_action_tokens",
+        "qwen3_vl_eval_prompt_format",
+        "ignore_dataset_prompt",
+        "env_reset_retries",
+        "repetition_penalty",
+    ]:
+        if hasattr(args, key):
+            config.setdefault(key, getattr(args, key))
     max_turns = config.get("max_turns", getattr(args, "max_turns", 40))
     max_action_tokens = int(config.get("max_action_tokens", 512))
     qwen3_vl_eval_prompt_format = bool(config.get("qwen3_vl_eval_prompt_format", True))
@@ -317,7 +346,7 @@ async def generate(args: Any, sample: Sample, sampling_params) -> list[Sample]:
         task_file = sample.metadata.get("task_file") if sample.metadata else None
         for reset_attempt in range(env_reset_retries + 1):
             try:
-                obs, _ = env.reset(task_file=task_file)
+                obs, _ = await env.async_reset(task_file=task_file)
                 break
             except Exception as exc:
                 if reset_attempt >= env_reset_retries:
@@ -381,7 +410,7 @@ async def generate(args: Any, sample: Sample, sampling_params) -> list[Sample]:
             if finish_type == "abort":
                 return _finalize_step_samples(step_samples, env=env, final_status=Sample.Status.ABORTED)
 
-            obs, done, info = env.step(response_text)
+            obs, done, info = await env.async_step(response_text)
             step_sample = _build_step_sample(
                 base_sample=sample,
                 obs_ids=input_ids,
@@ -431,6 +460,22 @@ async def generate(args: Any, sample: Sample, sampling_params) -> list[Sample]:
                 return _finalize_step_samples(step_samples, env=env, final_status=Sample.Status.COMPLETED)
 
         return _finalize_step_samples(step_samples, env=env, final_status=Sample.Status.COMPLETED)
+    except Exception as exc:
+        sample.metadata["alfworld_rollout_error"] = f"{type(exc).__name__}: {exc}"
+        logger.warning(
+            "ALFWorld rollout failed for task %s: %s",
+            sample.metadata.get("task_file"),
+            sample.metadata["alfworld_rollout_error"],
+            exc_info=True,
+        )
+        if "step_samples" in locals() and step_samples:
+            return _finalize_step_samples(
+                step_samples,
+                env=env,
+                final_status=Sample.Status.ABORTED,
+                final_info={"error": sample.metadata["alfworld_rollout_error"]},
+            )
+        return []
     finally:
         try:
             env.close()

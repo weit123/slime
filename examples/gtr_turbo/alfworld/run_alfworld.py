@@ -12,13 +12,16 @@ Environment variables:
     SLIME_SCRIPT_NUM_GPUS: Number of visible GPUs (default: len(SLIME_SCRIPT_VISIBLE_DEVICES))
     SLIME_SCRIPT_TRAIN_BACKEND: megatron (default: megatron)
     SLIME_SCRIPT_USE_WANDB: 1/0 to enable W&B logging (default: 1)
+    SLIME_SCRIPT_BACKGROUND: 1/0 to detach training and write logs under run_notes (default: 1)
 """
 
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 TRAIN_BACKEND = os.environ.get("SLIME_SCRIPT_TRAIN_BACKEND", "megatron")
@@ -31,19 +34,25 @@ MODEL_NAME = os.environ.get(
 VISIBLE_DEVICES = os.environ.get("SLIME_SCRIPT_VISIBLE_DEVICES", "0,1,2,3,4,5,6,7")
 NUM_GPUS = int(os.environ.get("SLIME_SCRIPT_NUM_GPUS", str(len([d for d in VISIBLE_DEVICES.split(",") if d]))))
 TENSOR_MODEL_PARALLEL_SIZE = int(os.environ.get("SLIME_SCRIPT_TENSOR_MODEL_PARALLEL_SIZE", "2"))
-NUM_EPOCHS = int(os.environ.get("SLIME_SCRIPT_NUM_EPOCHS", "30"))
-ROLLOUTS_PER_EPOCH = int(os.environ.get("SLIME_SCRIPT_ROLLOUTS_PER_EPOCH", "50"))
+NUM_EPOCHS = int(os.environ.get("SLIME_SCRIPT_NUM_EPOCHS", "18"))
+ROLLOUTS_PER_EPOCH = int(os.environ.get("SLIME_SCRIPT_ROLLOUTS_PER_EPOCH", "1"))
 NUM_ROLLOUT = int(os.environ.get("SLIME_SCRIPT_NUM_ROLLOUT", str(NUM_EPOCHS * ROLLOUTS_PER_EPOCH)))
-ROLLOUT_BATCH_SIZE = int(os.environ.get("SLIME_SCRIPT_ROLLOUT_BATCH_SIZE", "2"))
-N_SAMPLES_PER_PROMPT = int(os.environ.get("SLIME_SCRIPT_N_SAMPLES_PER_PROMPT", "32"))
-GLOBAL_BATCH_SIZE = int(os.environ.get("SLIME_SCRIPT_GLOBAL_BATCH_SIZE", "192"))
-SAVE_INTERVAL = int(os.environ.get("SLIME_SCRIPT_SAVE_INTERVAL", "50"))
+ROLLOUT_BATCH_SIZE = int(os.environ.get("SLIME_SCRIPT_ROLLOUT_BATCH_SIZE", "32"))
+N_SAMPLES_PER_PROMPT = int(os.environ.get("SLIME_SCRIPT_N_SAMPLES_PER_PROMPT", "4"))
+GLOBAL_BATCH_SIZE = int(os.environ.get("SLIME_SCRIPT_GLOBAL_BATCH_SIZE", "128"))
+USE_DYNAMIC_GLOBAL_BATCH_SIZE = os.environ.get(
+    "SLIME_SCRIPT_USE_DYNAMIC_GLOBAL_BATCH_SIZE", "1"
+).lower() in {"1", "true", "yes"}
+SAVE_INTERVAL = int(os.environ.get("SLIME_SCRIPT_SAVE_INTERVAL", "3"))
+SAVE_HF = os.environ.get("SLIME_SCRIPT_SAVE_HF", "1").lower() in {"1", "true", "yes"}
 LR = os.environ.get("SLIME_SCRIPT_LR", "1.0e-5")
 MIN_LR = os.environ.get("SLIME_SCRIPT_MIN_LR", "1.0e-7")
-LR_WARMUP_ITERS = int(os.environ.get("SLIME_SCRIPT_LR_WARMUP_ITERS", "10"))
+LR_WARMUP_ITERS = int(os.environ.get("SLIME_SCRIPT_LR_WARMUP_ITERS", "3"))
 LR_DECAY_STYLE = os.environ.get("SLIME_SCRIPT_LR_DECAY_STYLE", "cosine")
 SG_LANG_MEM_FRACTION_STATIC = os.environ.get("SLIME_SCRIPT_SGLANG_MEM_FRACTION_STATIC", "0.70")
 MAX_TURNS = int(os.environ.get("SLIME_SCRIPT_MAX_TURNS", "40"))
+ROLLOUT_TEMPERATURE = os.environ.get("SLIME_SCRIPT_ROLLOUT_TEMPERATURE", "0.4")
+ROLLOUT_TOP_K = int(os.environ.get("SLIME_SCRIPT_ROLLOUT_TOP_K", "20"))
 ROLLOUT_MAX_RESPONSE_LEN = int(os.environ.get("SLIME_SCRIPT_ROLLOUT_MAX_RESPONSE_LEN", "512"))
 ROLLOUT_MAX_CONTEXT_LEN = int(os.environ.get("SLIME_SCRIPT_ROLLOUT_MAX_CONTEXT_LEN", "4096"))
 SEED = int(os.environ.get("SLIME_SCRIPT_SEED", "42"))
@@ -56,6 +65,7 @@ WANDB_KEY = os.environ.get(
 )
 WANDB_HOST = os.environ.get("SLIME_SCRIPT_WANDB_HOST", "https://wandb.glm.ai")
 WANDB_PROJECT = os.environ.get("SLIME_SCRIPT_WANDB_PROJECT", "gtr")
+BACKGROUND = os.environ.get("SLIME_SCRIPT_BACKGROUND", "1").lower() not in {"0", "false", "no"}
 
 
 def prepare():
@@ -113,7 +123,8 @@ def execute():
         f"--num-rollout={NUM_ROLLOUT}",
         f"--rollout-batch-size={ROLLOUT_BATCH_SIZE}",
         f"--n-samples-per-prompt={N_SAMPLES_PER_PROMPT}",
-        "--rollout-temperature=1.0",
+        f"--rollout-temperature={ROLLOUT_TEMPERATURE}",
+        f"--rollout-top-k={ROLLOUT_TOP_K}",
         "--rollout-top-p=1.0",
         f"--rollout-max-response-len={ROLLOUT_MAX_RESPONSE_LEN}",
         f"--rollout-max-context-len={ROLLOUT_MAX_CONTEXT_LEN}",
@@ -177,15 +188,20 @@ def execute():
         f"--rollout-seed={SEED}",
     ])
 
+    if USE_DYNAMIC_GLOBAL_BATCH_SIZE:
+        args.append("--use-dynamic-global-batch-size")
+
     if SAVE_INTERVAL > 0:
         args.extend([
             f"--save={save_dir / 'checkpoints'}",
-            f"--save-hf={save_dir / 'hf_ckpt_{{rollout_id}}'}",
             f"--save-interval={SAVE_INTERVAL}",
         ])
+        if SAVE_HF:
+            args.append(f"--save-hf={save_dir / 'hf_ckpt_{rollout_id}'}")
 
     if USE_WANDB:
-        os.environ.setdefault("WANDB_NAME", f"seed{SEED}")
+        os.environ["WANDB_NAME"] = run_name
+        os.environ["WANDB_TAGS"] = f"{RUN_TAG},{env_short},{model_short},seed{SEED}"
         args.extend([
             "--use-wandb",
             "--disable-wandb-random-suffix",
@@ -197,7 +213,33 @@ def execute():
 
     cmd = [sys.executable, str(Path(__file__).resolve().parents[3] / "train.py")] + args
     print(f"Launching training: {' '.join(cmd[:10])}...")
-    os.execvp(cmd[0], cmd)
+    if not BACKGROUND:
+        os.execvp(cmd[0], cmd)
+
+    run_notes_dir = alfworld_dir / "run_notes"
+    run_notes_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = run_notes_dir / f"{run_name}_bg_{timestamp}.log"
+    cmd_path = run_notes_dir / f"{run_name}_bg_{timestamp}.cmd"
+    pid_path = run_notes_dir / f"{run_name}_bg_{timestamp}.pid"
+
+    env = os.environ.copy()
+    env.setdefault("PYTHONUNBUFFERED", "1")
+    cmd_path.write_text(shlex.join(cmd) + "\n", encoding="utf-8")
+    log_file = log_path.open("a", encoding="utf-8")
+    proc = subprocess.Popen(
+        cmd,
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
+        env=env,
+    )
+    pid_path.write_text(f"{proc.pid}\n", encoding="utf-8")
+    print(f"Started background training PID {proc.pid}")
+    print(f"Log: {log_path}")
+    print(f"Command: {cmd_path}")
+    print(f"PID file: {pid_path}")
 
 
 if __name__ == "__main__":

@@ -120,6 +120,7 @@ def build_slime_train_args(
 ) -> list[str]:
     """Build slime training CLI arguments for one epoch."""
     rollouts_per_epoch = config.get("rollouts_per_epoch", 50)
+    save_interval = int(config.get("save_interval", 1))
     start_rollout = epoch * rollouts_per_epoch
     end_rollout = (epoch + 1) * rollouts_per_epoch
 
@@ -162,7 +163,7 @@ def build_slime_train_args(
         "--input-key=prompt",
         f"--save={save_dir}/checkpoints",
         f"--save-hf={hf_ckpt_path}",
-        f"--save-interval={rollouts_per_epoch}",
+        f"--save-interval={save_interval}",
         f"--start-rollout-id={start_rollout}",
         f"--num-rollout={end_rollout}",
 
@@ -240,6 +241,8 @@ def build_slime_train_args(
 
     if config.get("colocate", True):
         args.append("--colocate")
+    if config.get("use_dynamic_global_batch_size", False):
+        args.append("--use-dynamic-global-batch-size")
     if env_name == "alfworld":
         args.append(f"--custom-rollout-log-function-path={env_base}.metrics.log_rollout")
 
@@ -514,7 +517,8 @@ def gtr_turbo_train_loop(config_path: str):
     wandb_env = {
         "WANDB_RUN_ID": wandb_run_id,
         "WANDB_RESUME": "allow",
-        "WANDB_NAME": f"seed{seed}",
+        "WANDB_NAME": run_name,
+        "WANDB_TAGS": f"{run_tag},{env_short},{model_short},seed{seed}",
     }
     logger.info("Wandb run ID: %s, name: %s", wandb_run_id, run_name)
 

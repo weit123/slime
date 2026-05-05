@@ -42,12 +42,17 @@ def init_wandb_primary(args):
 
     # Prepare wandb init parameters
     # add random 6 length string with characters
+    env_run_name = os.environ.get("WANDB_NAME")
+
     if args.wandb_random_suffix:
         group = args.wandb_group + "_" + wandb.util.generate_id()
-        run_name = f"{group}-RANK_{args.rank}"
+        run_name = f"{env_run_name or group}-RANK_{args.rank}"
     else:
         group = args.wandb_group
-        run_name = args.wandb_group
+        run_name = env_run_name or args.wandb_group
+
+    env_tags = os.environ.get("WANDB_TAGS")
+    tags = [tag.strip() for tag in env_tags.split(",") if tag.strip()] if env_tags else None
 
     # Prepare wandb init parameters
     init_kwargs = {
@@ -57,6 +62,8 @@ def init_wandb_primary(args):
         "name": run_name,
         "config": _compute_config_for_logging(args),
     }
+    if tags:
+        init_kwargs["tags"] = tags
 
     # Configure settings based on offline/online mode
     if offline:

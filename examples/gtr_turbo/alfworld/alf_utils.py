@@ -25,7 +25,7 @@ ALF_ACTION_LIST = [
 ]
 
 
-def install_thor5_compat_patches() -> None:
+def install_thor5_compat_patches(*, patch_put_object: bool = True) -> None:
     """Install process-local ALFWorld compatibility patches for ai2thor 5.x.
 
     ALFWorld 0.4.x still emits the pre-THOR5 PutObject call shape:
@@ -64,7 +64,7 @@ def install_thor5_compat_patches() -> None:
         BaseAgent._gtr_slime_move_parse_patched = True
         logger.info("Installed ALFWorld 0.4.x move-action parser compatibility patch")
 
-    if not getattr(ThorEnv, "_gtr_slime_thor5_compat_patched", False):
+    if patch_put_object and not getattr(ThorEnv, "_gtr_slime_thor5_compat_patched", False):
         original_step = ThorEnv.step
 
         def patched_step(self, action, smooth_nav=False, **kwargs):
@@ -280,12 +280,6 @@ class AlfEnv:
                        If provided, resets to that exact task instead of a random one.
         """
         if task_file:
-            # Double-reset for consistent rendering. First reset may fail on
-            # some scenes (SetStateOfAllObjects error) — catch and retry once.
-            try:
-                self._reset_to_task(task_file)
-            except Exception:
-                logger.debug("Warm-up reset failed for %s; retrying once", task_file, exc_info=True)
             obs, dones, info = self._reset_to_task(task_file)
             obs = obs[0]
         else:

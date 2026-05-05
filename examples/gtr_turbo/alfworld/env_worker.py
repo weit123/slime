@@ -12,6 +12,7 @@ import os
 import subprocess
 import shutil
 import fcntl
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,44 @@ def _ensure_xvfb(display=":99"):
     os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
 
 
+def _use_existing_xorg(display: str):
+    """Use an existing GPU-backed X server without forcing Mesa software GL."""
+    last_exc: Exception | None = None
+    for _ in range(5):
+        try:
+            subprocess.check_output(["xdpyinfo", "-display", display],
+                                    stderr=subprocess.DEVNULL, timeout=10)
+            break
+        except Exception as exc:
+            last_exc = exc
+            time.sleep(1)
+    else:
+        raise RuntimeError(f"Xorg display {display} is not available") from last_exc
+    os.environ["DISPLAY"] = display
+    os.environ.pop("LIBGL_ALWAYS_SOFTWARE", None)
+    os.environ.pop("__EGL_VENDOR_LIBRARY_FILENAMES", None)
+
+
+def _configure_render_flags(
+    *,
+    render_image: bool | None = None,
+    render_depth_image: bool | None = None,
+    render_class_image: bool | None = None,
+    render_object_image: bool | None = None,
+) -> None:
+    """Patch ALFWorld THOR render flags before scene reset/restore calls."""
+    from alfworld.gen import constants
+
+    if render_image is not None:
+        constants.RENDER_IMAGE = bool(render_image)
+    if render_depth_image is not None:
+        constants.RENDER_DEPTH_IMAGE = bool(render_depth_image)
+    if render_class_image is not None:
+        constants.RENDER_CLASS_IMAGE = bool(render_class_image)
+    if render_object_image is not None:
+        constants.RENDER_OBJECT_IMAGE = bool(render_object_image)
+
+
 class AlfWorldWorker:
     """Ray actor wrapping a single ALFWorld environment instance.
 
@@ -70,14 +109,30 @@ class AlfWorldWorker:
         image_size: tuple[int, int] | None = None,
         legacy_build_path: str | None = None,
         xvfb_display_base: int | None = None,
+        use_gpu_xorg: bool = False,
+        xorg_display_base: int | None = None,
+        xorg_num_displays: int | None = None,
+        render_image: bool | None = None,
+        render_depth_image: bool | None = None,
+        render_class_image: bool | None = None,
+        render_object_image: bool | None = None,
+        worker_warmup_reset: bool = False,
     ):
         self.worker_id = worker_id
         self.max_steps = max_steps
         self.image_size = image_size
+        self._broken = False
+        self._last_error: str | None = None
 
-        display_base = int(xvfb_display_base or os.environ.get("GTR_SLIME_XVFB_DISPLAY_BASE", "99"))
         os.environ.pop("DISPLAY", None)
-        _ensure_xvfb(f":{display_base + worker_id}")
+        if use_gpu_xorg:
+            display_base = int(xorg_display_base or os.environ.get("GTR_SLIME_XORG_DISPLAY_BASE", "210"))
+            num_displays = int(xorg_num_displays or os.environ.get("GTR_SLIME_XORG_NUM_DISPLAYS", "8"))
+            display = f":{display_base + (worker_id % num_displays)}"
+            _use_existing_xorg(display)
+        else:
+            display_base = int(xvfb_display_base or os.environ.get("GTR_SLIME_XVFB_DISPLAY_BASE", "99"))
+            _ensure_xvfb(f":{display_base + worker_id}")
         _patch_flask_jinja2_compat()
 
         from alfworld.agents.environment.alfred_thor_env import AlfredThorEnv
@@ -90,26 +145,68 @@ class AlfWorldWorker:
         )
 
         force_legacy_thor_build(legacy_build_path)
-        install_thor5_compat_patches()
+        install_thor5_compat_patches(patch_put_object=not bool(legacy_build_path))
+        _configure_render_flags(
+            render_image=render_image,
+            render_depth_image=render_depth_image,
+            render_class_image=render_class_image,
+            render_object_image=render_object_image,
+        )
         config = load_config_file(config_file)
         env = AlfredThorEnv(config, train_eval="eval_in_distribution")
         env.init_env(batch_size=1)
         self.alf_env = AlfEnv(env, max_steps=max_steps, image_size=image_size)
-        # Warm up THOR rendering — first scene load after init produces
-        # different images. Do a dummy reset to stabilize the renderer.
-        try:
-            self.alf_env.env.reset()
-        except Exception:
-            logger.warning("AlfWorldWorker %d warm-up failed (non-fatal)", worker_id)
+        if worker_warmup_reset:
+            # Optional compatibility warm-up for jobs that need a dummy scene
+            # load before the first task-specific reset.
+            try:
+                self.alf_env.env.reset()
+            except Exception:
+                logger.warning("AlfWorldWorker %d warm-up failed (non-fatal)", worker_id)
         logger.info("AlfWorldWorker %d initialized (ThorEnv)", worker_id)
 
     def reset(self, task_file=None) -> dict[str, Any]:
         """Reset environment and return initial observation."""
-        return self.alf_env.reset(task_file=task_file)
+        if self._broken:
+            raise RuntimeError(f"AlfWorldWorker {self.worker_id} is broken: {self._last_error}")
+        try:
+            return self.alf_env.reset(task_file=task_file)
+        except Exception as exc:
+            self._mark_broken(exc)
+            raise
 
     def step(self, action: str) -> tuple[dict[str, Any], float, bool, dict[str, Any]]:
         """Execute action and return (observation, reward, done, info)."""
-        return self.alf_env.step(action)
+        if self._broken:
+            raise RuntimeError(f"AlfWorldWorker {self.worker_id} is broken: {self._last_error}")
+        try:
+            return self.alf_env.step(action)
+        except Exception as exc:
+            self._mark_broken(exc)
+            raise
+
+    def _mark_broken(self, exc: BaseException) -> None:
+        self._broken = True
+        self._last_error = f"{type(exc).__name__}: {exc}"
+        logger.warning(
+            "AlfWorldWorker %d marked broken after %s",
+            self.worker_id,
+            self._last_error,
+        )
+        try:
+            self.alf_env.close()
+        except Exception:
+            logger.warning("Failed to close broken AlfWorldWorker %d", self.worker_id, exc_info=True)
+
+    def ready(self) -> dict[str, Any]:
+        """Return lightweight worker status after actor construction."""
+        return {
+            "worker_id": self.worker_id,
+            "display": os.environ.get("DISPLAY"),
+            "image_size": self.image_size,
+            "broken": self._broken,
+            "last_error": self._last_error,
+        }
 
     def get_task_description(self) -> str:
         return self.alf_env.task_description

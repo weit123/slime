@@ -113,7 +113,7 @@ async def generate(args: Any, sample: Sample, sampling_params) -> list[Sample]:
 
     try:
         task_file = sample.metadata.get("task_file") if sample.metadata else None
-        obs, _ = env.reset(task_file=task_file)
+        obs, _ = await env.async_reset(task_file=task_file)
         first_msg = env.format_observation(obs)
         messages.append(first_msg)
 
@@ -147,7 +147,7 @@ async def generate(args: Any, sample: Sample, sampling_params) -> list[Sample]:
             else:
                 new_tokens, new_log_probs = [], []
 
-            obs, done, info = env.step(response_text)
+            obs, done, info = await env.async_step(response_text)
             step_reward = info.get("reward", 0.0)
 
             turn_sample = _make_turn_sample(

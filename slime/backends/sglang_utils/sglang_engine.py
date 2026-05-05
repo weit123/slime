@@ -19,6 +19,13 @@ from slime.utils.http_utils import get_host_info
 logger = logging.getLogger(__name__)
 
 
+def _internal_request(method: str, url: str, **kwargs) -> requests.Response:
+    """Call local SGLang/router endpoints without using system proxy settings."""
+    with requests.Session() as session:
+        session.trust_env = False
+        return session.request(method, url, **kwargs)
+
+
 def get_base_gpu_id(args, rank):
     num_gpus = min(args.num_gpus_per_node, args.rollout_num_gpus_per_engine)
     if args.colocate:
@@ -86,9 +93,10 @@ def _wait_server_healthy(base_url, api_key, is_process_alive):
     }
 
     with requests.Session() as session:
+        session.trust_env = False
         while True:
             try:
-                response = session.get(f"{base_url}/health", headers=headers)
+                response = session.get(f"{base_url}/health", headers=headers, timeout=5)
                 if response.status_code == 200:
                     break
             except requests.RequestException:
@@ -173,7 +181,7 @@ class SGLangEngine(RayActor):
         logger.info(f"Use external SGLang engine (rank={self.rank}, expect_server_args={expect_server_args})")
 
         def _get_actual_server_args():
-            response = requests.get(f"http://{self.server_host}:{self.server_port}/get_server_info")
+            response = _internal_request("GET", f"http://{self.server_host}:{self.server_port}/get_server_info")
             response.raise_for_status()
             return response.json()
 
@@ -203,7 +211,8 @@ class SGLangEngine(RayActor):
         if self.node_rank == 0 and self.router_ip and self.router_port:
             if parse(sglang_router.__version__) <= parse("0.2.1"):
                 assert self.worker_type == "regular", "pd disaggregation is not supported in old router."
-                response = requests.post(
+                response = _internal_request(
+                    "POST",
                     f"http://{self.router_ip}:{self.router_port}/add_worker?url=http://{self.server_host}:{self.server_port}",
                 )
             else:
@@ -213,7 +222,8 @@ class SGLangEngine(RayActor):
                 }
                 if self.worker_type == "prefill":
                     payload["bootstrap_port"] = server_args_dict["disaggregation_bootstrap_port"]
-                response = requests.post(
+                response = _internal_request(
+                    "POST",
                     f"http://{self.router_ip}:{self.router_port}/workers",
                     json=payload,
                 )
@@ -233,7 +243,7 @@ class SGLangEngine(RayActor):
             return
 
         url = f"http://{self.server_host}:{self.server_port}/{endpoint}"
-        response = requests.post(url, json=payload or {})
+        response = _internal_request("POST", url, json=payload or {})
         try:
             response.raise_for_status()
         except requests.exceptions.HTTPError as e:
@@ -256,7 +266,8 @@ class SGLangEngine(RayActor):
         if self.node_rank != 0:
             return True
 
-        response = requests.get(
+        response = _internal_request(
+            "GET",
             f"http://{self.server_host}:{self.server_port}/health_generate",
             timeout=timeout,
         )
@@ -296,7 +307,8 @@ class SGLangEngine(RayActor):
         headers = {"Connection": "close"}
         for _ in range(60):
             try:
-                response = requests.get(
+                response = _internal_request(
+                    "GET",
                     f"http://{self.server_host}:{self.server_port}/flush_cache",
                     headers=headers,
                     timeout=(5, 30),
@@ -326,19 +338,23 @@ class SGLangEngine(RayActor):
             worker_url = f"http://{self.server_host}:{self.server_port}"
             response = None
             if parse(sglang_router.__version__) <= parse("0.2.1"):
-                response = requests.post(
+                response = _internal_request(
+                    "POST",
                     f"http://{self.router_ip}:{self.router_port}/remove_worker?url=http://{self.server_host}:{self.server_port}"
                 )
             elif parse(sglang_router.__version__) < parse("0.3.0"):
                 worker_url = quote(worker_url, safe="")
-                response = requests.delete(f"http://{self.router_ip}:{self.router_port}/workers/{worker_url}")
+                response = _internal_request("DELETE", f"http://{self.router_ip}:{self.router_port}/workers/{worker_url}")
             else:
                 try:
-                    all_workers = requests.get(f"http://{self.router_ip}:{self.router_port}/workers").json()["workers"]
+                    all_workers = _internal_request("GET", f"http://{self.router_ip}:{self.router_port}/workers").json()[
+                        "workers"
+                    ]
                     for worker in all_workers:
                         if worker["url"] == worker_url:
                             worker_id = worker["id"]
-                            response = requests.delete(
+                            response = _internal_request(
+                                "DELETE",
                                 f"http://{self.router_ip}:{self.router_port}/workers/{worker_id}"
                             )
                             break
@@ -355,7 +371,7 @@ class SGLangEngine(RayActor):
         if self.node_rank != 0:
             return
         url = f"http://{self.server_host}:{self.server_port}/get_weight_version"
-        response = requests.get(url)
+        response = _internal_request("GET", url)
         response.raise_for_status()
         return response.json()["weight_version"]
 
@@ -432,12 +448,14 @@ class SGLangEngine(RayActor):
         )
 
     def pause_generation(self):
-        response = requests.post(f"http://{self.server_host}:{self.server_port}/pause_generation", json={})
+        response = _internal_request("POST", f"http://{self.server_host}:{self.server_port}/pause_generation", json={})
         response.raise_for_status()
         return response
 
     def continue_generation(self):
-        response = requests.post(f"http://{self.server_host}:{self.server_port}/continue_generation", json={})
+        response = _internal_request(
+            "POST", f"http://{self.server_host}:{self.server_port}/continue_generation", json={}
+        )
         response.raise_for_status()
         return response
 
@@ -474,7 +492,8 @@ class SGLangEngine(RayActor):
         with_stack: bool | None = None,
         record_shapes: bool | None = None,
     ):
-        response = requests.post(
+        response = _internal_request(
+            "POST",
             f"http://{self.server_host}:{self.server_port}/start_profile",
             json={
                 "output_dir": output_dir,
@@ -490,7 +509,7 @@ class SGLangEngine(RayActor):
         return response
 
     def stop_profile(self):
-        response = requests.post(f"http://{self.server_host}:{self.server_port}/stop_profile", json={})
+        response = _internal_request("POST", f"http://{self.server_host}:{self.server_port}/stop_profile", json={})
         response.raise_for_status()
         return response
 
