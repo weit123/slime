@@ -143,6 +143,8 @@ def build_slime_train_args(
     rollout_gpus = train_gpus if config.get("colocate", True) else int(config.get("rollout_num_gpus", max(num_gpus - 1 - train_gpus, 1)))
     tensor_model_parallel_size = int(config.get("tensor_model_parallel_size", 2))
     global_batch_size = int(config.get("global_batch_size", 192))
+    rollout_batch_size = int(config.get("rollout_batch_size", 2))
+    over_sampling_batch_size = int(config.get("over_sampling_batch_size", rollout_batch_size * 2))
     if train_gpus % tensor_model_parallel_size != 0:
         raise ValueError(
             f"actor_num_gpus_per_node={train_gpus} must be divisible by "
@@ -155,11 +157,19 @@ def build_slime_train_args(
         )
 
     repo_root = Path(__file__).resolve().parents[3]
+    eval_config_path = config.get(
+        "eval_config",
+        f"{repo_root}/examples/gtr_turbo/{env_name}/eval_valid_seen.yaml",
+    )
+    default_prompt_data = f"{repo_root}/examples/gtr_turbo/{env_name}/data/{env_name}_oracle_train_prompts.jsonl"
+    prompt_data = Path(config.get("prompt_data", default_prompt_data))
+    if not prompt_data.is_absolute():
+        prompt_data = repo_root / prompt_data
 
     args = [
         f"--hf-checkpoint={ckpt_dir}",
         "--megatron-to-hf-mode=bridge",
-        f"--prompt-data={repo_root}/examples/gtr_turbo/{env_name}/data/{env_name}_prompts.jsonl",
+        f"--prompt-data={prompt_data}",
         "--input-key=prompt",
         f"--save={save_dir}/checkpoints",
         f"--save-hf={hf_ckpt_path}",
@@ -173,19 +183,28 @@ def build_slime_train_args(
         f"--custom-config-path={repo_root}/examples/gtr_turbo/{env_name}/config.yaml",
         "--multimodal-keys={\"image\": \"images\"}",
 
-        f"--rollout-batch-size={config.get('rollout_batch_size', 2)}",
+        f"--rollout-batch-size={rollout_batch_size}",
+        f"--over-sampling-batch-size={over_sampling_batch_size}",
         f"--n-samples-per-prompt={config.get('n_samples_per_prompt', 32)}",
         f"--rollout-temperature={config.get('rollout_temperature', 1.0)}",
-        f"--rollout-top-p={config.get('rollout_top_p', 1.0)}",
         f"--rollout-max-response-len={config.get('rollout_max_response_len', env_config.get('max_action_tokens', 512))}",
         f"--rollout-max-context-len={config.get('rollout_max_context_len', env_config.get('max_context_len', 4096))}",
+        "--balance-data",
         f"--max-turns={env_config.get('max_turns', 20)}",
+
+        "--eval-interval=1",
+        "--skip-eval-before-train",
+        f"--eval-config={eval_config_path}",
+        "--n-samples-per-eval-prompt=1",
+        "--eval-temperature=0.0",
+        f"--custom-eval-rollout-log-function-path={env_base}.metrics.log_eval_rollout",
 
         "--advantage-estimator=grpo",
         "--eps-clip=0.2",
+        "--eps-clip-high=0.28",
         "--kl-loss-coef=0.00",
         "--entropy-coef=0.00",
-        "--use-rollout-logprobs",
+        "--use-tis",
 
         f"--lr={config.get('lr', 1e-6)}",
         "--lr-warmup-init=1e-7",
@@ -200,6 +219,7 @@ def build_slime_train_args(
         f"--global-batch-size={global_batch_size}",
 
         f"--rollout-num-gpus={rollout_gpus}",
+        "--rollout-num-gpus-per-engine=1",
         f"--sglang-mem-fraction-static={config.get('sglang_mem_fraction_static', 0.70)}",
 
         "--train-backend=megatron",
@@ -243,8 +263,23 @@ def build_slime_train_args(
         args.append("--colocate")
     if config.get("use_dynamic_global_batch_size", False):
         args.append("--use-dynamic-global-batch-size")
+    if config.get("rollout_top_p") is not None:
+        args.append(f"--rollout-top-p={config['rollout_top_p']}")
+    if config.get("rollout_top_k") is not None:
+        args.append(f"--rollout-top-k={config['rollout_top_k']}")
+    if config.get("sglang_server_concurrency") is not None:
+        args.append(f"--sglang-server-concurrency={config['sglang_server_concurrency']}")
+    if config.get("sglang_cuda_graph_bs") is not None:
+        graph_bs = config["sglang_cuda_graph_bs"]
+        if isinstance(graph_bs, str):
+            graph_bs_values = graph_bs.split()
+        else:
+            graph_bs_values = [str(value) for value in graph_bs]
+        args.append("--sglang-cuda-graph-bs")
+        args.extend(graph_bs_values)
     if env_name == "alfworld":
         args.append(f"--custom-rollout-log-function-path={env_base}.metrics.log_rollout")
+        args.append(f"--dynamic-sampling-filter-path={env_base}.reward.check_reward_nonzero_std")
 
     if load_path is not None:
         args.append(f"--load={load_path}")
@@ -300,6 +335,100 @@ def build_slime_train_args(
             args.append("--custom-reward-post-process-path=examples.gtr_turbo.alfworld.reward.post_process_step_rewards")
 
     return args
+
+
+def ensure_alfworld_eval_set(config: dict, env_config_path: str) -> str | None:
+    """Generate the fixed valid_seen eval set if needed."""
+    if config.get("env", "alfworld") != "alfworld":
+        return None
+
+    repo_root = Path(__file__).resolve().parents[3]
+    alfworld_dir = repo_root / "examples/gtr_turbo/alfworld"
+    env_config_file = Path(env_config_path)
+    if not env_config_file.is_absolute():
+        env_config_file = repo_root / env_config_file
+    num_tasks = int(config.get("eval_num_tasks", 0))
+    seed = int(config.get("eval_seed", config.get("seed", 42)))
+    default_eval_name = (
+        "valid_seen_all_prompts.jsonl"
+        if num_tasks <= 0
+        else f"valid_seen_oracle{num_tasks}_seed{seed}.jsonl"
+    )
+    eval_path = Path(
+        config.get(
+            "eval_prompt_data",
+            alfworld_dir / f"data/{default_eval_name}",
+        )
+    )
+    if not eval_path.is_absolute():
+        eval_path = repo_root / eval_path
+
+    eval_config_path = Path(
+        config.get("eval_runtime_config", f"/tmp/gtr_turbo_alfworld_eval_valid_seen_seed{seed}.yaml")
+    )
+
+    if not eval_path.exists():
+        if num_tasks <= 0:
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(alfworld_dir / "data/gen_task_dataset.py"),
+                    "--data-path",
+                    str(config.get("eval_data_path", "/root/.cache/alfworld/json_2.1.1/valid_seen")),
+                    "--output",
+                    str(eval_path),
+                    "--prompt-content",
+                    "Begin ALFWorld eval task.",
+                    "--id-prefix",
+                    "alfworld_valid_seen",
+                    "--metadata-keys",
+                    "task_file",
+                    "task_type",
+                    "category",
+                    "--include-label",
+                ],
+                check=True,
+            )
+        else:
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(alfworld_dir / "data/gen_eval_valid_seen.py"),
+                    "--data-path",
+                    str(config.get("eval_data_path", "/root/.cache/alfworld/json_2.1.1/valid_seen")),
+                    "--config",
+                    str(env_config_file),
+                    "--output",
+                    str(eval_path),
+                    "--seed",
+                    str(seed),
+                    "--num-workers",
+                    str(config.get("eval_gen_workers", 32)),
+                    "--num-tasks",
+                    str(num_tasks),
+                ],
+                check=True,
+            )
+
+    eval_config_path.parent.mkdir(parents=True, exist_ok=True)
+    eval_config_path.write_text(
+        "eval:\n"
+        "  defaults:\n"
+        "    input_key: prompt\n"
+        "    label_key: null\n"
+        "    n_samples_per_eval_prompt: 1\n"
+        "    temperature: 0.0\n"
+        "    top_p: 1.0\n"
+        f"    max_response_len: {config.get('rollout_max_response_len', 512)}\n"
+        "  datasets:\n"
+        "    - name: alfworld_valid_seen\n"
+        f"      path: {eval_path}\n"
+        "      custom_generate_function_path: examples.gtr_turbo.alfworld.eval_rollout.generate\n",
+        encoding="utf-8",
+    )
+
+    config["eval_config"] = str(eval_config_path)
+    return str(eval_path)
 
 
 def _rollout_id_from_hf_ckpt(path: Path) -> int:
@@ -461,6 +590,7 @@ def gtr_turbo_train_loop(config_path: str):
     env_name = config.get("env", "alfworld")
     env_config_path = config.get("env_config", f"examples/gtr_turbo/{env_name}/config.yaml")
     env_config = load_config(env_config_path)
+    ensure_alfworld_eval_set(config, env_config_path)
 
     base_model = config["base_model"]
     save_dir_base = config.get("save_dir", "/workspace/wt/gtr_runs")
@@ -572,6 +702,13 @@ def gtr_turbo_train_loop(config_path: str):
             train_env["GTR_TEACHER_MAX_CONCURRENCY_PER_SERVER"] = str(
                 config.get("teacher_max_concurrency_per_server", 4)
             )
+            if env_name == "alfworld":
+                train_env["ALFWORLD_ROLLOUT_DEBUG_DIR"] = str(
+                    config.get("alfworld_rollout_debug_dir", f"{save_dir}/rollout_debug")
+                )
+                train_env["ALFWORLD_ROLLOUT_DEBUG_SAMPLE_RATE"] = str(
+                    config.get("alfworld_rollout_debug_sample_rate", 0.02)
+                )
             run_slime_training(train_args, extra_env=train_env)
 
             rollouts_per_epoch = config.get("rollouts_per_epoch", 50)

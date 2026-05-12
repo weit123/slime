@@ -1,0 +1,38 @@
+{
+  "by_category": {
+    "Clean & Place": {
+      "kept": 28,
+      "success_rate": 0.8484848484848485,
+      "total": 33
+    },
+    "Cool & Place": {
+      "kept": 23,
+      "success_rate": 0.8518518518518519,
+      "total": 27
+    },
+    "Examine in Light": {
+      "kept": 17,
+      "success_rate": 0.5862068965517241,
+      "total": 29
+    },
+    "Heat & Place": {
+      "kept": 19,
+      "success_rate": 0.95,
+      "total": 20
+    },
+    "Pick & Place": {
+      "kept": 43,
+      "success_rate": 0.9347826086956522,
+      "total": 46
+    },
+    "Pick Two & Place": {
+      "kept": 25,
+      "success_rate": 0.78125,
+      "total": 32
+    }
+  },
+  "kept": 155,
+  "mode": "all_solvable",
+  "success_rate": 0.8288770053475936,
+  "total": 187
+}

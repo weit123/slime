@@ -1175,8 +1175,8 @@ def _log_eval_rollout_data(rollout_id, args, data, extra_metrics: dict[str, Any]
     logger.info(f"eval {rollout_id}: {log_dict}")
 
     step = compute_rollout_step(args, rollout_id)
-    log_dict["eval/step"] = step
-    logging_utils.log(args, log_dict, step_key="eval/step")
+    log_dict["rollout/step"] = step
+    logging_utils.log(args, log_dict, step_key="rollout/step")
 
     return log_dict
 

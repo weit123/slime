@@ -1,0 +1,12 @@
+eval:
+  defaults:
+    input_key: prompt
+    label_key: null
+    n_samples_per_eval_prompt: 1
+    temperature: 0.0
+    top_p: 1.0
+    max_response_len: 1024
+  datasets:
+    - name: alfworld_valid_seen
+      path: examples/gtr_turbo/alfworld/data/valid_seen_all_prompts.jsonl
+      custom_generate_function_path: examples.gtr_turbo.alfworld.eval_rollout.generate

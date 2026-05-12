@@ -726,6 +726,12 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
             reset_arg(parser, "--save", type=str, default=None)
             reset_arg(parser, "--save-interval", type=int, default=None)
             reset_arg(parser, "--async-save", action="store_true")
+            parser.add_argument(
+                "--save-final-only",
+                action="store_true",
+                default=False,
+                help="If set, only run the save hook at the final rollout even when save_interval is set.",
+            )
             reset_arg(
                 parser,
                 "--no-save-optim",
@@ -1577,7 +1583,9 @@ def slime_validate_args(args):
         assert args.eval_datasets, "Evaluation datasets must be configured when eval_interval is set."
 
     if args.save_interval is not None:
-        assert args.save is not None, "'--save' is required when save_interval is set."
+        assert args.save is not None or args.save_hf is not None, (
+            "'--save' or '--save-hf' is required when save_interval is set."
+        )
 
     assert not (args.kl_coef != 0 and args.kl_loss_coef != 0), "Only one of kl_coef and kl_loss_coef can be set"
 

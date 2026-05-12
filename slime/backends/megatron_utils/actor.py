@@ -526,9 +526,10 @@ class MegatronTrainRayActor(TrainRayActor):
 
             maybe_finalize_async_save(blocking=True)
 
-        save(rollout_id, self.model, self.optimizer, self.opt_param_scheduler)
+        if self.args.save is not None:
+            save(rollout_id, self.model, self.optimizer, self.opt_param_scheduler)
 
-        if force_sync and self.args.async_save:
+        if force_sync and self.args.async_save and self.args.save is not None:
             maybe_finalize_async_save(blocking=True)
 
         if self.args.save_hf is not None and self.role == "actor":

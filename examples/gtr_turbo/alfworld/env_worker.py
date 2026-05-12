@@ -140,12 +140,12 @@ class AlfWorldWorker:
         from examples.gtr_turbo.alfworld.alf_utils import (
             AlfEnv,
             force_legacy_thor_build,
-            install_thor5_compat_patches,
+            install_alfworld_compat_patches,
             load_config_file,
         )
 
         force_legacy_thor_build(legacy_build_path)
-        install_thor5_compat_patches(patch_put_object=not bool(legacy_build_path))
+        install_alfworld_compat_patches()
         _configure_render_flags(
             render_image=render_image,
             render_depth_image=render_depth_image,

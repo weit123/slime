@@ -6,7 +6,14 @@ single-step samples: current observation/image prompt + current action only.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import os
+import random
+import threading
+import time
+from pathlib import Path
 from typing import Any
 
 import torch
@@ -25,6 +32,7 @@ DUMMY_MESSAGES = [
 ]
 
 logger = logging.getLogger(__name__)
+_DEBUG_OUTPUT_LOCK = threading.Lock()
 
 
 def _to_token_list(token_ids) -> list[int]:
@@ -195,6 +203,113 @@ def _message_text(message: dict[str, Any]) -> str:
     return "\n".join(text_chunks)
 
 
+def _debug_output_dir() -> str | None:
+    path = os.environ.get("ALFWORLD_ROLLOUT_DEBUG_DIR", "").strip()
+    return path or None
+
+
+def _debug_sample_rate() -> float:
+    try:
+        return max(0.0, float(os.environ.get("ALFWORLD_ROLLOUT_DEBUG_SAMPLE_RATE", "0.02")))
+    except ValueError:
+        return 0.02
+
+
+def _truncate_text(text: str, limit: int) -> str:
+    if limit <= 0 or len(text) <= limit:
+        return text
+    return text[:limit] + f"...[truncated {len(text) - limit} chars]"
+
+
+def _write_rollout_debug_record(record: dict[str, Any]) -> None:
+    debug_dir = _debug_output_dir()
+    if not debug_dir:
+        return
+    path = Path(debug_dir) / f"rollout_outputs_{os.getpid()}.jsonl"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with _DEBUG_OUTPUT_LOCK:
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False, default=_json_default) + "\n")
+    except Exception:
+        logger.warning("Failed to write ALFWorld rollout debug output to %s", path, exc_info=True)
+
+
+def _json_default(value: Any):
+    if isinstance(value, Path):
+        return str(value)
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            pass
+    if isinstance(value, set):
+        return sorted(value)
+    return str(value)
+
+
+def _maybe_log_rollout_output(
+    *,
+    sample: Sample,
+    env,
+    turn_idx: int,
+    current_msg: dict[str, Any],
+    response_text: str,
+    response_tokens: list[int],
+    input_ids: list[int],
+    cur_params: dict[str, Any],
+    output_meta: dict[str, Any],
+    finish_type: str,
+    done: bool,
+    info: dict[str, Any],
+    admissible_before: list[str],
+    action_history_before: list[str],
+) -> None:
+    legal = bool(info.get("legal", False))
+    should_log = (
+        turn_idx == 0
+        or done
+        or finish_type in {"length", "abort"}
+        or not legal
+        or random.random() < _debug_sample_rate()
+    )
+    if not should_log:
+        return
+
+    max_response_chars = int(os.environ.get("ALFWORLD_ROLLOUT_DEBUG_MAX_RESPONSE_CHARS", "4096"))
+    max_prompt_chars = int(os.environ.get("ALFWORLD_ROLLOUT_DEBUG_MAX_PROMPT_CHARS", "4096"))
+    metadata = sample.metadata or {}
+    finish_reason = output_meta.get("finish_reason") if isinstance(output_meta, dict) else None
+    record = {
+        "timestamp": time.time(),
+        "pid": os.getpid(),
+        "group_index": sample.group_index,
+        "trajectory_index": sample.index,
+        "step_index": turn_idx,
+        "task_file": metadata.get("task_file"),
+        "task_type": metadata.get("task_type"),
+        "category": metadata.get("category"),
+        "task": getattr(env, "task_description", ""),
+        "action_history_before": action_history_before,
+        "admissible_commands": admissible_before,
+        "action_taken": info.get("action_taken"),
+        "action_legal": legal,
+        "action_parse": info.get("action_parse"),
+        "done": done,
+        "finish_type": finish_type,
+        "finish_reason": finish_reason,
+        "reward": info.get("reward"),
+        "cumulative_reward": info.get("cumulative_reward"),
+        "response_token_len": len(response_tokens),
+        "prompt_token_len": len(input_ids),
+        "max_new_tokens": cur_params.get("max_new_tokens"),
+        "response_sha1": hashlib.sha1(response_text.encode("utf-8", errors="ignore")).hexdigest(),
+        "prompt_text": _truncate_text(_message_text(current_msg), max_prompt_chars),
+        "raw_response": _truncate_text(response_text, max_response_chars),
+    }
+    _write_rollout_debug_record(record)
+
+
 def _build_step_sample(
     *,
     base_sample: Sample,
@@ -300,6 +415,8 @@ async def generate(args: Any, sample: Sample, sampling_params) -> list[Sample]:
         "ignore_dataset_prompt",
         "env_reset_retries",
         "repetition_penalty",
+        "debug_output_log_dir",
+        "debug_output_sample_rate",
     ]:
         if hasattr(args, key):
             config.setdefault(key, getattr(args, key))
@@ -313,6 +430,10 @@ async def generate(args: Any, sample: Sample, sampling_params) -> list[Sample]:
     url = f"http://{args.sglang_router_ip}:{args.sglang_router_port}/generate"
 
     env = await async_build_env(sample, args)
+    if config.get("debug_output_log_dir") and not os.environ.get("ALFWORLD_ROLLOUT_DEBUG_DIR"):
+        os.environ["ALFWORLD_ROLLOUT_DEBUG_DIR"] = str(config["debug_output_log_dir"])
+    if config.get("debug_output_sample_rate") is not None and not os.environ.get("ALFWORLD_ROLLOUT_DEBUG_SAMPLE_RATE"):
+        os.environ["ALFWORLD_ROLLOUT_DEBUG_SAMPLE_RATE"] = str(config["debug_output_sample_rate"])
     sample.metadata = sample.metadata or {}
     sample.metadata["alfworld_need_teacher_logprobs"] = bool(
         getattr(args, "use_opd", False) and getattr(args, "opd_type", None) == "sglang"
@@ -410,7 +531,25 @@ async def generate(args: Any, sample: Sample, sampling_params) -> list[Sample]:
             if finish_type == "abort":
                 return _finalize_step_samples(step_samples, env=env, final_status=Sample.Status.ABORTED)
 
+            admissible_before = list(env.admissible_commands)
+            action_history_before = list(env.action_history)
             obs, done, info = await env.async_step(response_text)
+            _maybe_log_rollout_output(
+                sample=sample,
+                env=env,
+                turn_idx=turn_idx,
+                current_msg=current_msg,
+                response_text=response_text,
+                response_tokens=new_tokens,
+                input_ids=input_ids,
+                cur_params=cur_params,
+                output_meta=output.get("meta_info", {}),
+                finish_type=finish_type,
+                done=done,
+                info=info,
+                admissible_before=admissible_before,
+                action_history_before=action_history_before,
+            )
             step_sample = _build_step_sample(
                 base_sample=sample,
                 obs_ids=input_ids,

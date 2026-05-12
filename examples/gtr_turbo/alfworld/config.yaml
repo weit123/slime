@@ -4,7 +4,7 @@
 # Multi-turn interaction settings
 max_turns: 40
 max_context_len: 16384
-max_action_tokens: 256
+max_action_tokens: 1024
 
 # Sampling overrides. Keep this aligned with alfworld_test's HF greedy eval path;
 # rollout temperature is controlled by run_alfworld.py.

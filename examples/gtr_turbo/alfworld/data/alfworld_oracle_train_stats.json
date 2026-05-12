@@ -1,0 +1,72 @@
+{
+  "by_category": {
+    "Clean & Place": {
+      "kept": 593,
+      "ratio": 0.7741514360313316,
+      "total": 766
+    },
+    "Cool & Place": {
+      "kept": 491,
+      "ratio": 0.7695924764890282,
+      "total": 638
+    },
+    "Examine in Light": {
+      "kept": 531,
+      "ratio": 0.7673410404624278,
+      "total": 692
+    },
+    "Heat & Place": {
+      "kept": 463,
+      "ratio": 0.8542435424354243,
+      "total": 542
+    },
+    "Pick & Place": {
+      "kept": 622,
+      "ratio": 0.6479166666666667,
+      "total": 960
+    },
+    "Pick Two & Place": {
+      "kept": 593,
+      "ratio": 0.5696445725264169,
+      "total": 1041
+    }
+  },
+  "errors": {
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_and_place_simple-Candle-None-CounterTop-411/trial_T20190906_200827_470056/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_and_place_simple-Candle-None-CounterTop-411/trial_T20190906_200853_771692/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_clean_then_place_in_recep-ButterKnife-None-Drawer-30/trial_T20190908_052041_072368/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_clean_then_place_in_recep-Cloth-None-Drawer-411/trial_T20190907_202148_426436/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_clean_then_place_in_recep-Cloth-None-Toilet-411/trial_T20190908_011709_090359/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_clean_then_place_in_recep-Egg-None-CounterTop-30/trial_T20190907_113341_603440/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_clean_then_place_in_recep-Egg-None-Microwave-30/trial_T20190909_124957_148528/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_clean_then_place_in_recep-Fork-None-Drawer-30/trial_T20190908_030909_087593/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_clean_then_place_in_recep-Ladle-None-Cabinet-20/trial_T20190907_195107_986651/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_clean_then_place_in_recep-Lettuce-None-CounterTop-30/trial_T20190909_033228_803068/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_clean_then_place_in_recep-SoapBar-None-BathtubBasin-411/trial_T20190907_033249_510159/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_clean_then_place_in_recep-SoapBar-None-BathtubBasin-411/trial_T20190907_033311_020938/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_clean_then_place_in_recep-SoapBar-None-BathtubBasin-411/trial_T20190907_033339_816251/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_clean_then_place_in_recep-SoapBar-None-Toilet-411/trial_T20190908_103036_548485/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_clean_then_place_in_recep-Spatula-None-CounterTop-30/trial_T20190909_050738_091810/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_cool_then_place_in_recep-Bread-None-CounterTop-16/trial_T20190907_221900_266325/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_cool_then_place_in_recep-Cup-None-SinkBasin-30/trial_T20190909_012452_594063/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_cool_then_place_in_recep-Egg-None-Microwave-30/trial_T20190908_232443_737194/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_cool_then_place_in_recep-Mug-None-Microwave-20/trial_T20190908_125321_767640/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_cool_then_place_in_recep-Potato-None-Microwave-20/trial_T20190909_035658_081195/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_cool_then_place_in_recep-Tomato-None-SinkBasin-30/trial_T20190908_011959_933518/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_cool_then_place_in_recep-Tomato-None-SinkBasin-30/trial_T20190908_012041_749782/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_heat_then_place_in_recep-Mug-None-CoffeeMachine-30/trial_T20190907_220045_510017/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_heat_then_place_in_recep-Mug-None-CoffeeMachine-30/trial_T20190908_044350_359469/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_heat_then_place_in_recep-Potato-None-SinkBasin-30/trial_T20190908_080503_071243/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_two_obj_and_place-Candle-None-Drawer-411/trial_T20190909_060014_389023/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_two_obj_and_place-Cloth-None-Drawer-411/trial_T20190908_185916_759840/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_two_obj_and_place-Egg-None-Microwave-30/trial_T20190907_163137_897997/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_two_obj_and_place-SaltShaker-None-Shelf-20/trial_T20190906_200921_594258/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_two_obj_and_place-SoapBottle-None-CounterTop-411/trial_T20190907_110947_693826/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_two_obj_and_place-SoapBottle-None-CounterTop-411/trial_T20190907_111029_579247/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_two_obj_and_place-SprayBottle-None-CounterTop-411/trial_T20190909_045011_463449/traj_data.json": 1,
+    "TimeoutError: Timed out resetting task: /root/.cache/alfworld/json_2.1.1/train/pick_two_obj_and_place-SprayBottle-None-CounterTop-411/trial_T20190909_045033_783510/traj_data.json": 1
+  },
+  "kept": 3293,
+  "ratio": 0.7098512610476396,
+  "total": 4639
+}

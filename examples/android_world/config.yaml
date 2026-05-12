@@ -1,0 +1,30 @@
+# Android World environment configuration for slime RL training.
+# Loaded via --custom-config-path examples/android_world/config.yaml
+
+# Multi-turn interaction
+max_turns: 30
+max_context_len: 16384
+history_window_size: 10  # Limit action history to last N steps (null = unlimited)
+
+# Environment pool
+num_workers: 128
+resources_per_worker:
+  num_cpus: 4
+  memory: 8589934592  # 8 GB
+
+# Android emulator settings
+avd_name: "AndroidWorldAvd"
+base_avd_name_pattern: "slime_aw_{}"
+base_console_port: 5556
+base_grpc_port: 8554
+base_adb_server_port: 5037
+android_avd_home: "/root/android/avd/"
+android_sdk_root: "/root/android/"
+emulator_path: "/root/android/emulator/emulator"
+adb_path: "/root/android/platform-tools/adb"
+temp_path: "/tmp/android_world_images"
+save_images: false
+task_family: "android_world"
+image_size:
+  - 540
+  - 1200

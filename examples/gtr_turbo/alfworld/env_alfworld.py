@@ -14,7 +14,7 @@ import numpy as np
 from PIL import Image
 
 from examples.geo3k_vlm_multi_turn.base_env import BaseInteractionEnv
-from examples.gtr_turbo.alfworld.alf_utils import process_action
+from examples.gtr_turbo.alfworld.alf_utils import parse_action_match
 from examples.gtr_turbo.alfworld.prompts import get_alfworld_prompt
 
 logger = logging.getLogger(__name__)
@@ -120,7 +120,9 @@ class ALFWorldEnv(BaseInteractionEnv):
         """
         import ray
 
-        action, legal = process_action(response_text, self.admissible_commands)
+        action_parse = parse_action_match(response_text, self.admissible_commands)
+        action = action_parse["action"]
+        legal = bool(action_parse["legal"])
         self.action_history.append(action)
         self.response_history.append(response_text)
         self.legal_history.append(legal)
@@ -136,13 +138,15 @@ class ALFWorldEnv(BaseInteractionEnv):
             raise
         if self.pool is not None:
             self.pool.record_timing(self.worker_id, step_sec=time.monotonic() - start)
-        return self._apply_step_result(action, legal, obs, reward, done, info)
+        return self._apply_step_result(action, legal, action_parse, obs, reward, done, info)
 
     async def async_step(self, response_text: str) -> tuple[dict, bool, dict]:
         """Async version of step() that does not block the rollout event loop."""
         import ray
 
-        action, legal = process_action(response_text, self.admissible_commands)
+        action_parse = parse_action_match(response_text, self.admissible_commands)
+        action = action_parse["action"]
+        legal = bool(action_parse["legal"])
         self.action_history.append(action)
         self.response_history.append(response_text)
         self.legal_history.append(legal)
@@ -159,12 +163,13 @@ class ALFWorldEnv(BaseInteractionEnv):
             raise
         if self.pool is not None:
             self.pool.record_timing(self.worker_id, step_sec=time.monotonic() - start)
-        return self._apply_step_result(action, legal, obs, reward, done, info)
+        return self._apply_step_result(action, legal, action_parse, obs, reward, done, info)
 
     def _apply_step_result(
         self,
         action: str,
         legal: bool,
+        action_parse: dict[str, Any],
         obs: dict[str, Any],
         reward: float,
         done: bool,
@@ -179,6 +184,7 @@ class ALFWorldEnv(BaseInteractionEnv):
         info["cumulative_reward"] = self._cumulative_reward
         info["legal"] = legal
         info["action_taken"] = action
+        info["action_parse"] = action_parse
         info["total_actions"] = len(self.action_history)
         info["illegal_actions"] = sum(1 for item in self.legal_history if not item)
         return obs, done, info

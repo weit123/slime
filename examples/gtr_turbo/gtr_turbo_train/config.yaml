@@ -28,6 +28,7 @@ model_args:
 # Environment
 env: alfworld
 env_config: "examples/gtr_turbo/alfworld/config.yaml"
+prompt_data: "examples/gtr_turbo/alfworld/data/alfworld_oracle_train_prompts.jsonl"
 
 # Training orchestration
 num_epochs: 30
@@ -51,24 +52,42 @@ slime_visible_devices: "0,1,2,3,4,5"
 actor_num_gpus_per_node: 6
 tensor_model_parallel_size: 2
 colocate: true
-sglang_mem_fraction_static: 0.70
+sglang_mem_fraction_static: 0.82
+sglang_server_concurrency: 256
+sglang_cuda_graph_bs:
+  - 1
+  - 2
+  - 4
+  - 8
+  - 16
+  - 24
+  - 32
 
 # GRPO sampling. n_samples_per_prompt is the GRPO group size.
-rollout_batch_size: 32
-n_samples_per_prompt: 16
-# 32 tasks * 16 rollouts = 512 trajectories. With 6 actor GPUs and TP=2,
-# DP=3, so dynamic global batch uses the largest divisible value: 510.
-global_batch_size: 510
+rollout_batch_size: 16
+over_sampling_batch_size: 32
+n_samples_per_prompt: 8
+# 16 tasks * 8 rollouts = 128 trajectories. With 6 actor GPUs and TP=2,
+# DP=3, so dynamic global batch uses the largest divisible value: 126.
+global_batch_size: 126
 use_dynamic_global_batch_size: true
-rollout_temperature: 0.4
-rollout_top_p: 1.0
-rollout_max_response_len: 512
-rollout_max_context_len: 4096
+rollout_temperature: 0.7
+rollout_max_response_len: 1024
+rollout_max_context_len: 16384
+
+# Fixed full valid_seen evaluation. This uses every raw valid_seen task, not
+# only the oracle/expert-solvable subset.
+eval_data_path: "/root/.cache/alfworld/json_2.1.1/valid_seen"
+eval_num_tasks: 0
+eval_seed: 42
+eval_gen_workers: 32
+eval_prompt_data: "examples/gtr_turbo/alfworld/data/valid_seen_all_prompts.jsonl"
+eval_config: "examples/gtr_turbo/alfworld/eval_valid_seen.yaml"
 
 # Optimizer
-lr: 1.0e-5
+lr: 1.0e-6
 lr_warmup_iters: 3
-lr_decay_style: "cosine"
+lr_decay_style: "constant"
 min_lr: 1.0e-7
 
 # TIES checkpoint merging.

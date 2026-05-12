@@ -21,7 +21,7 @@ def _mean(values: list[float]) -> float:
     return float(np.mean(values).item()) if values else 0.0
 
 
-def _task_type_from_path(task_file: str | None) -> str | None:
+def task_type_from_path(task_file: str | None) -> str | None:
     if not task_file:
         return None
     task_dir = task_file.split("/")[-3] if "/" in task_file else task_file
@@ -54,7 +54,7 @@ def collect_alfworld_metrics(samples) -> dict[str, Any]:
 
     category_to_metrics: dict[str, list[dict[str, Any]]] = {}
     for sample, item in sample_metric_pairs:
-        task_type = _task_type_from_path(sample.metadata.get("task_file") if sample.metadata else None)
+        task_type = task_type_from_path(sample.metadata.get("task_file") if sample.metadata else None)
         category = TASK_TYPE_TO_CATEGORY.get(task_type or "")
         if category:
             category_to_metrics.setdefault(category, []).append(item)
@@ -74,3 +74,64 @@ def log_rollout(rollout_id, args, samples, rollout_extra_metrics, rollout_time) 
     if rollout_extra_metrics is not None:
         rollout_extra_metrics.update(collect_alfworld_metrics(samples))
     return False
+
+
+def _category_key(category: str) -> str:
+    return category.lower().replace(" & ", "_").replace(" ", "_")
+
+
+def _mean_metadata(samples, key: str) -> float:
+    values = [float(sample.metadata.get(key, 0.0)) for sample in samples if sample.metadata]
+    return _mean(values)
+
+
+def log_eval_rollout(rollout_id, args, data, extra_metrics) -> bool:
+    """Log task-level ALFWorld eval metrics with success_rate naming."""
+    from slime.utils import logging_utils
+    from slime.utils.metric_utils import compute_rollout_step
+
+    log_dict = extra_metrics or {}
+    for dataset_name, info in data.items():
+        samples = info.get("samples", [])
+        if not samples:
+            continue
+        prefix = f"eval/{dataset_name}"
+        successes = [float(sample.metadata.get("eval_success", False)) for sample in samples if sample.metadata]
+        returns = [float(sample.metadata.get("eval_return", 0.0)) for sample in samples if sample.metadata]
+        total_actions = sum(int(sample.metadata.get("eval_total_actions", 0)) for sample in samples if sample.metadata)
+        illegal_actions = sum(int(sample.metadata.get("eval_illegal_actions", 0)) for sample in samples if sample.metadata)
+
+        log_dict[f"{prefix}/success_rate"] = _mean(successes)
+        log_dict[f"{prefix}/mean_return"] = _mean(returns)
+        log_dict[f"{prefix}/mean_goal_condition_success_rate"] = _mean_metadata(
+            samples, "eval_goal_condition_success_rate"
+        )
+        log_dict[f"{prefix}/mean_steps"] = _mean_metadata(samples, "eval_steps")
+        log_dict[f"{prefix}/illegal_action_rate"] = illegal_actions / total_actions if total_actions else 0.0
+        log_dict[f"{prefix}/num_tasks"] = len(samples)
+
+        for category in TASK_TYPE_TO_CATEGORY.values():
+            subset = [sample for sample in samples if (sample.metadata or {}).get("category") == category]
+            if not subset:
+                continue
+            cat_prefix = f"{prefix}/{_category_key(category)}"
+            cat_total_actions = sum(int(sample.metadata.get("eval_total_actions", 0)) for sample in subset)
+            cat_illegal_actions = sum(int(sample.metadata.get("eval_illegal_actions", 0)) for sample in subset)
+            log_dict[f"{cat_prefix}/success_rate"] = _mean(
+                [float(sample.metadata.get("eval_success", False)) for sample in subset]
+            )
+            log_dict[f"{cat_prefix}/mean_return"] = _mean(
+                [float(sample.metadata.get("eval_return", 0.0)) for sample in subset]
+            )
+            log_dict[f"{cat_prefix}/mean_goal_condition_success_rate"] = _mean_metadata(
+                subset, "eval_goal_condition_success_rate"
+            )
+            log_dict[f"{cat_prefix}/illegal_action_rate"] = (
+                cat_illegal_actions / cat_total_actions if cat_total_actions else 0.0
+            )
+            log_dict[f"{cat_prefix}/num_tasks"] = len(subset)
+
+    step = compute_rollout_step(args, rollout_id)
+    log_dict["rollout/step"] = step
+    logging_utils.log(args, log_dict, step_key="rollout/step")
+    return True

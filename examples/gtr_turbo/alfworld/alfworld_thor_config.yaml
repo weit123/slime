@@ -1,4 +1,4 @@
-# ALFWorld configuration for AlfredThorEnv (visual environment with ai2thor 5.0)
+# ALFWorld configuration for AlfredThorEnv visual environment
 # This file is loaded by env_worker.py via config.yaml -> alfworld_config_file
 
 env:

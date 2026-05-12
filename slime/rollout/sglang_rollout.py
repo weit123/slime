@@ -39,6 +39,22 @@ logger = logging.getLogger(__name__)
 _PROCESSOR_PROMPT_KEYS = {"input_ids", "attention_mask"}
 
 
+def _first_sample_in_group(group: list[Sample | list[Sample]]) -> Sample | None:
+    for item in group:
+        if isinstance(item, list):
+            if item:
+                return item[0]
+        elif item is not None:
+            return item
+    return None
+
+
+def _has_empty_rollout_item(group: list[Sample | list[Sample]]) -> bool:
+    if not group:
+        return True
+    return any(item is None or (isinstance(item, list) and not item) for item in group)
+
+
 def _prepare_prompt_ids(sample: Sample, tokenizer, processor: Any) -> list[int]:
     raw_multimodal_inputs = sample.multimodal_inputs or {}
     has_multimodal_inputs = any(value is not None for value in raw_multimodal_inputs.values())
@@ -430,8 +446,13 @@ async def generate_rollout_async(
         for task in done:
             group: list[Sample] = task.result()
 
+            if _has_empty_rollout_item(group):
+                logger.warning("Drop rollout group with empty sample list; resubmitting another group.")
+                state.remaining_batch_size -= 1
+                continue
+
             if do_print:
-                sample = group[0][0] if isinstance(group[0], list) else group[0]
+                sample = _first_sample_in_group(group)
                 logger.info(
                     f"First rollout sample: {[str(sample.prompt) + sample.response]}, label: {str(sample.label)[:100]}, reward: {sample.reward}",
                 )
@@ -452,7 +473,7 @@ async def generate_rollout_async(
                 pbar.update(args.n_samples_per_prompt)
 
     pbar.close()
-    sample = data[-1][0][0] if isinstance(data[-1][0], list) else data[-1][0]
+    sample = _first_sample_in_group(data[-1])
     logger.info(
         f"Finish rollout: {[str(sample.prompt) + sample.response]}, label: {str(sample.label)[:100]}, reward: {sample.reward}",
     )

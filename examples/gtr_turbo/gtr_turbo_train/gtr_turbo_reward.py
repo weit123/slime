@@ -181,11 +181,11 @@ def post_process_rewards(args, samples: list[Sample], **kwargs):
 
 
 def _normalize_task_rewards_for_grpo(args, samples: list[Sample], raw_rewards: list[float]) -> list[float]:
-    """Normalize ALFWorld step rewards by original prompt and step index.
+    """Normalize ALFWorld task rewards by prompt and trajectory.
 
     GTR-Turbo uses OPD teacher log-probs as an auxiliary KL term, but the
-    scalar reward should still follow the same step-level GRPO grouping as the
-    ALFWorld baseline.
+    scalar reward should still follow the same trajectory-level GRPO grouping
+    as the ALFWorld baseline and Android World history rollout.
     """
     if not (
         args.advantage_estimator in ["grpo", "gspo", "reinforce_plus_plus_baseline"]
@@ -193,6 +193,30 @@ def _normalize_task_rewards_for_grpo(args, samples: list[Sample], raw_rewards: l
     ):
         return raw_rewards
 
+    prompt_groups: dict[int | None, dict[int | None, list[int]]] = {}
+    for idx, sample in enumerate(samples):
+        metadata = sample.metadata or {}
+        group_id = metadata.get("alfworld_group_index", sample.group_index)
+        traj_id = metadata.get("alfworld_trajectory_index", sample.index)
+        prompt_groups.setdefault(group_id, {}).setdefault(traj_id, []).append(idx)
+
+    rewards = [0.0] * len(samples)
+    for trajectories in prompt_groups.values():
+        traj_positions = list(trajectories.values())
+        traj_rewards = [raw_rewards[positions[0]] for positions in traj_positions]
+        values = torch.tensor(traj_rewards, dtype=torch.float)
+        values = values - values.mean()
+        if args.advantage_estimator in ["grpo", "gspo"] and args.grpo_std_normalization and values.numel() > 1:
+            values = values / (values.std() + 1e-6)
+        for value, positions in zip(values.tolist(), traj_positions, strict=False):
+            for idx in positions:
+                rewards[idx] = value
+
+    return rewards
+
+
+def _normalize_task_rewards_by_step_for_grpo(args, samples: list[Sample], raw_rewards: list[float]) -> list[float]:
+    """Legacy step-index normalization retained for debugging comparisons."""
     grouped: dict[tuple[int | None, int | None], list[int]] = {}
     for idx, sample in enumerate(samples):
         metadata = sample.metadata or {}

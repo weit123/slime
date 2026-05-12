@@ -51,7 +51,12 @@ def train(args):
         else:
             ray.get(actor_model.async_train(rollout_id, rollout_data_curr_ref))
 
-        if should_run_periodic_action(rollout_id, args.save_interval, num_rollout_per_epoch, args.num_rollout):
+        should_save = should_run_periodic_action(
+            rollout_id, args.save_interval, num_rollout_per_epoch, args.num_rollout
+        )
+        if args.save_final_only and rollout_id != args.num_rollout - 1:
+            should_save = False
+        if should_save:
             if not args.critic_train_only:
                 actor_model.save_model(
                     rollout_id,
